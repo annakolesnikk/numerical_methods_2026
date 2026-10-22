@@ -1,5 +1,5 @@
 import csv
-from math import factorial
+from math import factorial, log2
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -114,15 +114,18 @@ def factorial_poly(x0, h, fd_table, x_val):
     return result
 
 
-# факторіальні многочлени працюють на рівновіддалених вузлах,
-# тому будуємо рівномірну сітку на [x0, xn] за допомогою многочлена Ньютона
-n_uzl = len(x) - 1
-h = (x[-1] - x[0]) / n_uzl
-x_equal = [x[0] + i * h for i in range(n_uzl + 1)]
-y_equal = [newton_poly(x, table, xv) for xv in x_equal]
+# факторіальні многочлени працюють на рівновіддалених вузлах.
+# Вузли 1000, 2000, 4000, 8000, 16000 кожен раз подвоюються, тому в змінній
+# t = log2(n / x0) вони рівновіддалені: t = 0, 1, 2, 3, 4 з кроком h = 1
+t_nodes = [log2(xv / x[0]) for xv in x]
+print("\nВузли у змінній t = log2(n/1000):", t_nodes)
 
-fd_table = finite_diff_table(y_equal)
-pred_factorial = factorial_poly(x_equal[0], h, fd_table, 6000)
+fd_table = finite_diff_table(y)
+print("Скінченні різниці:", [fd_table[0][k] for k in range(len(y))])
+
+t_val = log2(6000 / x[0])
+pred_factorial = factorial_poly(0.0, 1.0, fd_table, t_val)
+print(f"t(6000) = log2(6) = {t_val:.4f}")
 print(f"Прогноз факторіальним многочленом при n=6000: {pred_factorial:.4f} мс")
 
 
@@ -152,6 +155,19 @@ for n_nodes in [5, 10, 20]:
     pred = newton_poly(x_sub, table_sub, 6000)
     print(f"n_nodes={n_nodes}: прогноз при x=6000 = {pred:.4f}")
 
+# точність прогнозу на реальних даних: додаємо вузли, найближчі до 6000
+order = sorted(range(len(x)), key=lambda i: abs(x[i] - 6000))
+print("\nПрогноз при додаванні реальних вузлів (найближчих до 6000):")
+prev = None
+for k in range(2, len(x) + 1):
+    idx = sorted(order[:k])
+    xs = [x[i] for i in idx]
+    ys = [y[i] for i in idx]
+    p = newton_poly(xs, divided_diff_table(xs, ys), 6000)
+    diff = "" if prev is None else f", зміна = {abs(p - prev):.4f}"
+    print(f"{k} вузли {[int(v) for v in xs]}: N(6000) = {p:.4f}{diff}")
+    prev = p
+
 x_dense = np.linspace(min(x), max(x), 400)
 f_reference = np.array([newton_poly(x, table, xv) for xv in x_dense])
 
@@ -167,7 +183,7 @@ for n_nodes in [5, 10, 20]:
 
 plt.xlabel('x')
 plt.ylabel('|похибка|')
-plt.title('Похибка інтерполяції залежно від кількості вузлів')
+plt.title('Відхилення від еталонного многочлена (похибки округлення)')
 plt.legend()
 plt.grid(True)
 plt.yscale('log')
@@ -231,66 +247,84 @@ plt.show()
 node_counts = [5, 10, 20]
 
 # ---- 1. Вплив кроку: фіксований інтервал, різна кількість вузлів ----
-x_dense = np.linspace(a, b, 400)
-f_reference = np.array([runge_test_func(xv, a, b) for xv in x_dense])
-
 print()
 plt.figure(figsize=(8, 5))
 results_step = []
 for n_nodes in node_counts:
-    x_sub = list(np.linspace(a, b, n_nodes))
+    h = (b - a) / (n_nodes - 1)                          # крок між вузлами
+    x_sub = [a + k * h for k in range(n_nodes)]          # вузли: x_k = a + k*h
     y_sub = [runge_test_func(xv, a, b) for xv in x_sub]
     table_sub = divided_diff_table(x_sub, y_sub)
 
-    y_interp = np.array([newton_poly(x_sub, table_sub, xv) for xv in x_dense])
-    err = np.abs(y_interp - f_reference)
+    h_tab = h / 20                                       # крок табуляції
+    x_tab_r = [a + i * h_tab for i in range(20 * (n_nodes - 1) + 1)]   # x_i = a + i*h_tab
+    err = np.array([abs(newton_poly(x_sub, table_sub, xv) - runge_test_func(xv, a, b))
+                    for xv in x_tab_r])
     max_err = err.max()
-    results_step.append((n_nodes, max_err))
-    print(f"n_nodes={n_nodes}: крок h={(b - a) / (n_nodes - 1):.2f}, макс. похибка={max_err:.6e}")
+    results_step.append((n_nodes, h, max_err))
+    print(f"n_nodes={n_nodes}: крок h={h:.2f}, макс. похибка={max_err:.6e}")
 
-    plt.plot(x_dense, err, label=f'{n_nodes} вузлів')
+    plt.plot(x_tab_r, err, label=f'{n_nodes} вузлів, h={h:.0f}')
 
 plt.xlabel('x')
-plt.ylabel('|похибка|')
-plt.yscale('log')
-plt.title('Вплив кроку h на точність (фіксований інтервал)')
-plt.legend()
+plt.ylabel('|f(x) − N(x)|')
+plt.title('Похибка інтерполяції при різному кроці h (фіксований інтервал)')
+plt.legend(loc='upper center')
 plt.grid(True)
 plt.savefig('error_step_influence.png')
 plt.show()
 
+# залежність максимальної похибки від кроку h
+plt.figure(figsize=(8, 5))
+plt.plot([r[1] for r in results_step], [r[2] for r in results_step], 'bo-')
+for n_nodes, h, max_err in results_step:
+    plt.annotate(f'{n_nodes} вузлів', (h, max_err), textcoords='offset points', xytext=(5, 5))
+plt.xlabel('крок h')
+plt.ylabel('максимальна похибка')
+plt.yscale('log')
+plt.title('Залежність максимальної похибки від кроку h')
+plt.grid(True)
+plt.savefig('max_error_vs_step.png')
+plt.show()
+
 # ---- 2. Вплив кількості вузлів: фіксований крок, змінний інтервал ----
+# функція Рунге залишається заданою на [a, b] = [1000, 16000],
+# змінюється лише ділянка [a, b_var], яку покривають вузли
 h_fixed = (b - a) / 20.0   # фіксований крок
 print(f"\nФіксований крок h = {h_fixed:.3f}")
 
 plt.figure(figsize=(8, 5))
 results_interval = []
 for n_nodes in node_counts:
-    b_var = a + h_fixed * (n_nodes - 1)                  # останній вузол при кроці h
-    x_sub = [a + i * h_fixed for i in range(n_nodes)]    # вузли з точно фіксованим кроком
-    y_sub = [runge_test_func(xv, a, b_var) for xv in x_sub]
+    b_var = a + h_fixed * (n_nodes - 1)                  # b = a + h*(n-1)
+    x_sub = [a + k * h_fixed for k in range(n_nodes)]    # вузли: x_k = a + k*h
+    y_sub = [runge_test_func(xv, a, b) for xv in x_sub]  # функція та сама, на [a, b]
     table_sub = divided_diff_table(x_sub, y_sub)
 
-    x_dense_var = np.linspace(a, b_var, 300)
-    f_ref_var = np.array([runge_test_func(xv, a, b_var) for xv in x_dense_var])
-    y_interp_var = np.array([newton_poly(x_sub, table_sub, xv) for xv in x_dense_var])
-    err_var = np.abs(y_interp_var - f_ref_var)
+    h_tab = h_fixed / 20
+    x_tab_r = [a + i * h_tab for i in range(20 * (n_nodes - 1) + 1)]
+    err_var = np.array([abs(newton_poly(x_sub, table_sub, xv) - runge_test_func(xv, a, b))
+                        for xv in x_tab_r])
     max_err = err_var.max()
     results_interval.append((n_nodes, b_var, max_err))
     print(f"n_nodes={n_nodes}: інтервал=[{a:.0f}, {b_var:.0f}], макс. похибка={max_err:.6e}")
 
-    plt.plot(x_dense_var, err_var, label=f'{n_nodes} вузлів, b={b_var:.0f}')
+    plt.plot(x_tab_r, err_var, label=f'{n_nodes} вузлів, b={b_var:.0f}')
 
 plt.xlabel('x')
-plt.ylabel('|похибка|')
+plt.ylabel('|f(x) − N(x)|')
 plt.yscale('log')
-plt.title('Вплив розширення інтервалу на точність (фіксований крок)')
-plt.legend()
+plt.title('Похибка інтерполяції при фіксованому кроці h = 750')
+plt.legend(loc='upper left')
 plt.grid(True)
 plt.savefig('error_interval_influence.png')
 plt.show()
 
 # ---- 3. Аналіз ефекту Рунге ----
 print("\nАналіз ефекту Рунге:")
-for n_nodes, max_err in results_step:
-    print(f"  n={n_nodes:3d}  максимальна похибка = {max_err:.6e}")
+print("  фіксований інтервал:")
+for n_nodes, h, max_err in results_step:
+    print(f"    n={n_nodes:3d}  h={h:.2f}  максимальна похибка = {max_err:.6e}")
+print("  фіксований крок:")
+for n_nodes, b_var, max_err in results_interval:
+    print(f"    n={n_nodes:3d}  b={b_var:.0f}  максимальна похибка = {max_err:.6e}")
