@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "employee-testing"
+version = "0.1.0"
+description = "Automated tests for the employee management project (laboratory work No. 6, variant 6)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+addopts = [
+    "-ra",
+    "--strict-markers",
+]
+markers = [
+    "integration: integration tests",
+]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = [
+    "domain_app",
+    "reliable_importer",
+]
+omit = [
+    "*/domain_app/main.py",
+    "*/domain_app/experiment.py",
+    "*/reliable_importer/experiments.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
