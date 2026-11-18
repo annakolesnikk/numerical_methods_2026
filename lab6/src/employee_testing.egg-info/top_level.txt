@@ -1,2 +1,0 @@
-domain_app
-reliable_importer

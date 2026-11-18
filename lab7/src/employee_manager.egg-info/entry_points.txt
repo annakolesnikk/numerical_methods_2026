@@ -1,2 +1,0 @@
-[console_scripts]
-employee-manager = employee_manager.main:main
